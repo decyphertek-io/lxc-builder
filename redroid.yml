@@ -5,11 +5,17 @@ image:
   architecture: amd64
 
 packages:
-  - linux-modules-extra-generic
-  - lxc-utils
-  - skopeo
-  - umoci
-  - jq
+  manager: apt
+  update: true
+  cleanup: true
+  sets:
+  - packages:
+    - linux-modules-extra-generic
+    - lxc-utils
+    - skopeo
+    - umoci
+    - jq
+    action: install
 
 files:
   - path: /usr/share/lxc/templates/lxc-oci
