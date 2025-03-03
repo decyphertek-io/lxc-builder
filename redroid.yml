@@ -5,11 +5,13 @@ image:
   architecture: amd64
 
 packages:
-  - linux-modules-extra-$(uname -r)
-  - lxc-utils
-  - skopeo
-  - umoci
-  - jq
+  update: true
+  install:
+    - linux-modules-extra-$(uname -r)
+    - lxc-utils
+    - skopeo
+    - umoci
+    - jq
 
 files:
   - path: /usr/share/lxc/templates/lxc-oci
