@@ -4,18 +4,22 @@ image:
   release: noble
   architecture: amd64
 
+source:
+  downloader: debootstrap
+  url: http://archive.ubuntu.com/ubuntu
+
 packages:
   manager: apt
   update: true
   cleanup: true
   sets:
-  - packages:
-    - linux-modules-extra-generic
-    - lxc-utils
-    - skopeo
-    - umoci
-    - jq
-    action: install
+    - packages:
+        - linux-modules-extra-generic
+        - lxc-utils
+        - skopeo
+        - umoci
+        - jq
+      action: install
 
 files:
   - path: /usr/share/lxc/templates/lxc-oci
@@ -37,3 +41,6 @@ actions:
       rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
       systemctl start lxc-net
       lxc-start -l debug -o redroid15.log -n redroid15
+
+mappings:
+  architecture_map: debian
