@@ -17,3 +17,7 @@ cd lxc-builder
 sudo distrobuilder build-lxc example.yml
 lxc launch ./example.tar.gz example-container
 ```
+
+References:
+-----------
+* https://linuxcontainers.org/distrobuilder/docs/latest/reference/
