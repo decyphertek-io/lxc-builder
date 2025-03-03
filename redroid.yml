@@ -1,11 +1,11 @@
 # Redroid 15 on Ubuntu 24.04 LXC
 image:
   distribution: ubuntu
-  release: 24.04
+  release: noble
   architecture: amd64
 
 packages:
-  - linux-modules-extra-$(uname -r)
+  - linux-modules-extra-generic
   - lxc-utils
   - skopeo
   - umoci
@@ -18,9 +18,10 @@ files:
 
 actions:
   - trigger: post-files
-    action: |-
+    action: |
+      modprobe binder_linux devices="binder,hwbinder,vndbinder"
       mkdir -p $HOME/data-redroid15
-      lxc-create -n redroid15 -t oci -- -u docker://docker.io/redroid/redroid:15.0.0-latest
+      lxc-create -n redroid15 -t oci -- -u docker://redroid/redroid:15.0.0-latest
       sed -i '/lxc.include/d' /var/lib/lxc/redroid15/config
       echo -e "lxc.init.cmd=/init androidboot.hardware=redroid androidboot.redroid_gpu_mode=guest
       lxc.apparmor.profile=unconfined
@@ -29,3 +30,4 @@ actions:
       lxc.mount.entry=$HOME/data-redroid15 data none bind 0 0" >> /var/lib/lxc/redroid15/config
       rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
       systemctl start lxc-net
+      lxc-start -l debug -o redroid15.log -n redroid15
