@@ -23,6 +23,7 @@ packages:
 
 files:
   - path: /usr/share/lxc/templates/lxc-oci
+    generator: dump
     content: |
       set -u
 
