@@ -7,6 +7,8 @@ image:
 source:
   downloader: debootstrap
   url: http://archive.ubuntu.com/ubuntu
+  keys:
+    - 0xF6ECB3762474EDA9D21B7022871920D1991BC93C
 
 packages:
   manager: apt

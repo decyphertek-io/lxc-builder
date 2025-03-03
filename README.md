@@ -16,7 +16,7 @@ git clone https://github.com/decyphertek-io/lxc-builder.git
 cd lxc-builder
 sudo distrobuilder build-lxc example.yml
 # This can take 15 minutes to build
-lxc launch ./example.tar.gz example-container
+sudo lxc launch ./example.tar.gz example-container
 ```
 
 References:
