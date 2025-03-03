@@ -5,11 +5,13 @@ image:
   architecture: amd64
 
 packages:
-  - linux-modules-extra-`uname -r`
-  - lxc-utils
-  - skopeo
-  - umoci
-  - jq
+  update: true
+  install:
+    - linux-modules-extra-$(uname -r)
+    - lxc-utils
+    - skopeo
+    - umoci
+    - jq
 
 files:
   - path: /usr/share/lxc/templates/lxc-oci
@@ -28,7 +30,9 @@ config:
   - lxc.autodev.tmpfs.size: 25000000
   - lxc.mount.entry: $HOME/data-redroid15 data none bind 0 0
 
-post_commands:
-  - mkdir -p $HOME/data-redroid15
-  - rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
-  - systemctl start lxc-net
+actions:
+  - trigger: post-files
+    action: |-
+      mkdir -p $HOME/data-redroid15
+      rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
+      systemctl start lxc-net

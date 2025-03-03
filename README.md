@@ -14,6 +14,6 @@ sudo pacman -S lxc distrobuilder
 # Clone and build Redroid LXC image
 git clone https://github.com/decyphertek-io/lxc-builder.git
 cd lxc-builder
-distrobuilder build-lxc example.yml
+sudo distrobuilder build-lxc example.yml
 lxc launch ./example.tar.gz example-container
 ```
