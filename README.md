@@ -1,6 +1,6 @@
 Requirements:
 =============
-* lxc & Distrobuilder
+* LXC & Distrobuilder
 ```
 #Debian Based
 sudo apt install lxc distrobuilder
