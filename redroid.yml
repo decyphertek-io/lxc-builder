@@ -1,0 +1,34 @@
+# Redroid 15 on Ubuntu 24.04 LXC
+image:
+  distribution: ubuntu
+  release: 24.04
+  architecture: amd64
+
+packages:
+  - linux-modules-extra-`uname -r`
+  - lxc-utils
+  - skopeo
+  - umoci
+  - jq
+
+files:
+  - path: /usr/share/lxc/templates/lxc-oci
+    content: |
+      set -u
+
+container:
+  name: redroid15
+  template: oci
+  source: docker://docker.io/redroid/redroid:15.0.0-latest
+
+config:
+  - lxc.init.cmd: /init androidboot.hardware=redroid androidboot.redroid_gpu_mode=guest
+  - lxc.apparmor.profile: unconfined
+  - lxc.autodev: 1
+  - lxc.autodev.tmpfs.size: 25000000
+  - lxc.mount.entry: $HOME/data-redroid15 data none bind 0 0
+
+post_commands:
+  - mkdir -p $HOME/data-redroid15
+  - rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
+  - systemctl start lxc-net
