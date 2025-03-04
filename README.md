@@ -3,11 +3,11 @@ Requirements:
 * LXC & Distrobuilder
 ```
 #Debian Based
-sudo apt install lxc distrobuilder
+sudo apt install lxc bridge-utils distrobuilder
 #Red Hat Based
-sudo yum install lxc distrobuilder
+sudo yum install lxc bridge-utils distrobuilder
 #Arch Linux Based
-sudo pacman -S lxc distrobuilder
+sudo pacman -S lxc bridge-utils distrobuilder
 ```
 * How to use Distrobuilder with lxc-build repo
 ```
