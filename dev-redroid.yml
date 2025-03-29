@@ -17,7 +17,9 @@ packages:
   sets:
     - packages:
         - linux-modules-extra-generic
+        - lxc
         - lxc-utils
+        - uidmap
         - skopeo
         - umoci
         - jq
@@ -27,23 +29,54 @@ files:
   - path: /usr/share/lxc/templates/lxc-oci
     generator: dump
     content: |
+      #!/bin/bash
+      # Content of lxc-oci template script
       set -u
+      # Add the actual template script content here
 
 actions:
+  - trigger: post-packages
+    action: |
+      # Load binder modules
+      modprobe binder_linux devices="binder,hwbinder,vndbinder"
+      
   - trigger: post-files
     action: |
-      modprobe binder_linux devices="binder,hwbinder,vndbinder"
-      mkdir -p $HOME/data-redroid15
-      lxc-create -n redroid15 -t oci -- -u docker://redroid/redroid:15.0.0-latest
-      sed -i '/lxc.include/d' /var/lib/lxc/redroid15/config
+      # Create data directory
+      mkdir -p $ROOT/home/ubuntu/data-redroid15
+      
+      # Create the container
+      chroot $ROOT lxc-create -n redroid15 -t oci -- -u docker://redroid/redroid:15.0.0-latest
+      
+      # Modify container config
+      sed -i '/lxc.include/d' $ROOT/var/lib/lxc/redroid15/config
       echo -e "lxc.init.cmd=/init androidboot.hardware=redroid androidboot.redroid_gpu_mode=guest
       lxc.apparmor.profile=unconfined
       lxc.autodev=1
       lxc.autodev.tmpfs.size=25000000
-      lxc.mount.entry=$HOME/data-redroid15 data none bind 0 0" >> /var/lib/lxc/redroid15/config
-      rm -f /var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
-      systemctl start lxc-net
-      lxc-start -l debug -o redroid15.log -n redroid15
+      lxc.mount.entry=/home/ubuntu/data-redroid15 data none bind 0 0" >> $ROOT/var/lib/lxc/redroid15/config
+      
+      # Remove problematic file
+      rm -f $ROOT/var/lib/lxc/redroid15/rootfs/vendor/bin/ipconfigstore
+      
+      # Create systemd service for auto-start
+      cat > $ROOT/etc/systemd/system/redroid15.service << EOF
+      [Unit]
+      Description=Redroid 15 Android Container
+      After=network.target lxc-net.service
+      
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/lxc-start -n redroid15
+      ExecStop=/usr/bin/lxc-stop -n redroid15
+      Restart=on-failure
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      
+      # Enable the service
+      chroot $ROOT systemctl enable redroid15.service
 
 mappings:
   architecture_map: debian
