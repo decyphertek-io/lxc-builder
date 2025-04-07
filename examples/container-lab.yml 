@@ -1,0 +1,156 @@
+#!/bin/bash
+# LXD, Podman, and ContainerLab Integration Setup
+# For decyphertek.io documentation
+
+# Update system
+sudo pacman -Syu
+
+# Install LXD
+sudo pacman -S lxd
+sudo systemctl enable lxd
+sudo systemctl start lxd
+
+# Initialize LXD with default settings
+cat <<EOF | sudo lxd init --preseed
+config: {}
+networks:
+- config:
+    ipv4.address: 10.0.0.1/24
+    ipv4.nat: "true"
+  description: ""
+  name: lxdbr0
+  type: bridge
+storage_pools:
+- config:
+    size: 50GiB
+  description: ""
+  name: default
+  driver: btrfs
+profiles:
+- config: {}
+  description: ""
+  devices:
+    eth0:
+      name: eth0
+      network: lxdbr0
+      type: nic
+    root:
+      path: /
+      pool: default
+      type: disk
+  name: default
+cluster: null
+EOF
+
+# Install Podman
+sudo pacman -S podman podman-compose cni-plugins
+systemctl --user enable podman.socket
+systemctl --user start podman.socket
+
+# Create shared network for LXD and Podman
+sudo ip link add name podlxd type bridge
+sudo ip link set podlxd up
+sudo ip addr add 10.10.10.1/24 dev podlxd
+
+# Configure LXD to use shared network
+sudo lxc network create podlxd-bridge
+sudo lxc network set podlxd-bridge ipv4.address 10.10.10.1/24
+sudo lxc network set podlxd-bridge ipv4.nat true
+sudo lxc profile create podman-profile
+sudo lxc profile device add podman-profile eth0 nic network=podlxd-bridge
+
+# Configure Podman to use shared network
+sudo mkdir -p /etc/cni/net.d
+cat <<EOF | sudo tee /etc/cni/net.d/podlxd.conflist
+{
+  "cniVersion": "0.4.0",
+  "name": "podlxd",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "podlxd",
+      "isGateway": true,
+      "ipMasq": true,
+      "ipam": {
+        "type": "host-local",
+        "ranges": [
+          [
+            {
+              "subnet": "10.10.10.0/24",
+              "rangeStart": "10.10.10.50",
+              "rangeEnd": "10.10.10.100"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}
+EOF
+
+# Install ContainerLab
+sudo bash -c "$(curl -sL https://get.containerlab.dev)"
+
+# Create example ContainerLab topology
+mkdir -p ~/containerlab
+cat <<EOF > ~/containerlab/topology.yml
+name: integrated-lab
+topology:
+  nodes:
+    redroid:
+      kind: linux
+      image: docker.io/redroid/redroid:15.0.0
+      env:
+        REDROID_PROPS: "debug.drm.mode.force_dpi=440"
+      privileged: true
+    guacamole:
+      kind: linux
+      image: guacamole/guacamole:latest
+      ports:
+        - "8080:8080"
+      env:
+        GUACD_HOSTNAME: guacd
+    guacd:
+      kind: linux
+      image: guacamole/guacd:latest
+  links:
+    - endpoints: ["redroid:eth1", "guacamole:eth1"]
+    - endpoints: ["guacamole:eth2", "guacd:eth1"]
+EOF
+
+# Install distrobuilder for custom images
+sudo pacman -S go
+export GOPATH=$HOME/go
+go install github.com/lxc/distrobuilder/distrobuilder@latest
+
+# Create example distrobuilder configuration
+mkdir -p ~/distrobuilder
+cat <<EOF > ~/distrobuilder/redroid.yml
+image:
+  name: custom-redroid
+  description: Custom Android container
+  distribution: android
+source:
+  downloader: docker
+  url: docker.io/redroid/redroid:15.0.0
+targets:
+  lxc:
+    create-message: |
+      You just created a custom Android container.
+    config:
+      - type: all
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/android.common.conf
+EOF
+
+# Deploy ContainerLab topology
+sudo containerlab deploy -t ~/containerlab/topology.yml
+
+# Create LXD container using podman-profile
+sudo lxc launch images:ubuntu/22.04 ubuntu-test --profile podman-profile
+
+echo "Setup complete! Your integrated environment is ready."
+echo "- LXD containers available at: lxc list"
+echo "- Podman containers available at: podman ps"
+echo "- ContainerLab topology deployed at: containerlab inspect"
+echo "- Guacamole web interface available at: http://localhost:8080/guacamole/"
