@@ -1,0 +1,152 @@
+# Docker Android on Ubuntu 24.04 LXC
+image:
+  distribution: ubuntu
+  release: noble
+  architecture: amd64
+
+source:
+  downloader: debootstrap
+  url: http://archive.ubuntu.com/ubuntu
+  keys:
+    - 0xF6ECB3762474EDA9D21B7022871920D1991BC93C
+
+packages:
+  manager: apt
+  update: true
+  cleanup: true
+  sets:
+    - packages:
+        - linux-modules-extra-generic
+        - lxc
+        - lxc-utils
+        - uidmap
+        - skopeo
+        - umoci
+        - jq
+        - docker.io
+        - kvm
+        - qemu-kvm
+      action: install
+
+files:
+  - path: /usr/share/lxc/templates/lxc-oci
+    generator: dump
+    content: |
+      #!/bin/bash
+      # Content of lxc-oci template script
+      set -u
+      # Add the actual template script content here
+
+actions:
+  - trigger: post-packages
+    action: |
+      # Ensure KVM is available
+      modprobe kvm
+      modprobe kvm_intel || modprobe kvm_amd
+      
+  - trigger: post-files
+    action: |
+      # Create data directory
+      mkdir -p $ROOT/home/ubuntu/android_data
+      
+      # Create the container
+      chroot $ROOT lxc-create -n dockerandroid -t oci -- -u docker://budtmo/docker-android:emulator_14.0
+      
+      # Modify container config
+      sed -i '/lxc.include/d' $ROOT/var/lib/lxc/dockerandroid/config
+      echo -e "lxc.apparmor.profile=unconfined
+      lxc.autodev=1
+      lxc.autodev.tmpfs.size=25000000
+      lxc.mount.entry=/home/ubuntu/android_data /root/androidemulator/avd none bind 0 0
+      lxc.mount.entry=/dev/kvm dev/kvm none bind 0 0
+      lxc.environment=EMULATOR_DEVICE=Samsung Galaxy S10
+      lxc.environment=WEB_VNC=true
+      lxc.environment=RESOLUTION=1280x720" >> $ROOT/var/lib/lxc/dockerandroid/config
+      
+      # Create systemd service for auto-start
+      cat > $ROOT/etc/systemd/system/dockerandroid.service << EOF
+      [Unit]
+      Description=Docker Android Container
+      After=network.target lxc-net.service
+      
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/lxc-start -n dockerandroid
+      ExecStop=/usr/bin/lxc-stop -n dockerandroid
+      Restart=on-failure
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      
+      # Enable the service
+      chroot $ROOT systemctl enable dockerandroid.service
+      
+      # Create nginx configuration for proxy
+      mkdir -p $ROOT/etc/nginx/sites-available
+      mkdir -p $ROOT/etc/nginx/sites-enabled
+      
+      cat > $ROOT/etc/nginx/sites-available/android << EOF
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name localhost;
+          return 301 https://\$host\$request_uri;
+      }
+      
+      server {
+          listen 443 ssl;
+          listen [::]:443 ssl;
+          server_name localhost;
+          
+          ssl_certificate /etc/ssl/certs/self-signed-crt.pem;
+          ssl_certificate_key /etc/ssl/private/self-signed-key.pem;
+          ssl_session_cache shared:SSL:1m;
+          ssl_session_timeout 5m;
+          ssl_protocols TLSV1.2 TLSV1.3;
+          ssl_ciphers HIGH:!aNULL:!MD5;
+          ssl_prefer_server_ciphers on;
+          
+          location / {
+              proxy_pass http://localhost:6080;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header Host \$host;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade \$http_upgrade;
+              proxy_set_header Connection "upgrade";
+          }
+      }
+      EOF
+      
+      # Generate self-signed SSL certificate
+      mkdir -p $ROOT/etc/ssl/private
+      openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout $ROOT/etc/ssl/private/self-signed-key.pem \
+        -out $ROOT/etc/ssl/certs/self-signed-crt.pem \
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+      
+      # Enable nginx site
+      ln -sf $ROOT/etc/nginx/sites-available/android $ROOT/etc/nginx/sites-enabled/
+      
+      # Create nginx service
+      cat > $ROOT/etc/systemd/system/nginx.service << EOF
+      [Unit]
+      Description=nginx - high performance web server
+      After=network.target
+      
+      [Service]
+      Type=forking
+      ExecStart=/usr/sbin/nginx -c /etc/nginx/nginx.conf
+      ExecReload=/usr/sbin/nginx -s reload
+      ExecStop=/usr/sbin/nginx -s stop
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      
+      # Enable nginx service
+      chroot $ROOT systemctl enable nginx.service
+
+mappings:
+  architecture_map: debian
