@@ -108,7 +108,29 @@ files:
       
       chmod +x /home/run-android.sh
       
-      echo "Setup complete! Run /home/run-android.sh to start Android"
+      # Create systemd service for auto-starting Android
+      cat > /etc/systemd/system/android-emulator.service << 'EOF'
+      [Unit]
+      Description=Android Emulator for Raspberry Pi
+      After=network.target
+      
+      [Service]
+      Type=simple
+      User=root
+      Environment="DISPLAY=:0"
+      Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+      ExecStart=/home/run-android.sh
+      Restart=on-failure
+      RestartSec=5
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      
+      # Enable the service
+      systemctl enable android-emulator.service
+      
+      echo "Setup complete! Android will start automatically when the container launches."
 
 actions:
   - trigger: post-packages
@@ -144,8 +166,7 @@ mappings:
 # Post-installation instructions:
 # 1. Build the container: lxc launch debian:bookworm android-container -f /home/adminotaur/Documents/git/lxc-builder/dev/android.yml
 # 2. Start the container: lxc start android-container
-# 3. Enter the container: lxc exec android-container -- bash
-# 4. Run the Android emulator: ./run-android.sh
+# 3. The Android emulator will start automatically
 #
 # How X11 and Audio Passthrough Works:
 # - The X11 socket is mounted from the host into the container
