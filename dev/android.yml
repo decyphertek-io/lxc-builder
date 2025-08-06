@@ -10,8 +10,8 @@
 # - VPN passthrough capabilities
 
 # Prerequisites (host system):
-# 1. Install LXD: sudo apt install lxd
-# 2. Initialize LXD: lxd init (accept defaults or customize as needed)
+# 1. Install LXC: sudo apt install lxc
+# 2. Initialize LXC: lxc init (accept defaults or customize as needed)
 # 3. Make sure X11 forwarding is enabled: xhost +local:
 
 image:
