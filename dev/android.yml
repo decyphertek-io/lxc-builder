@@ -1,0 +1,165 @@
+# THIS IS EXPERIEMNTAL & STILL IN DEV
+
+# LineageOS 22 for Raspberry Pi 5 in LXC with Direct X11 and Audio Passthrough
+# Source: https://konstakang.com/devices/rpi5/LineageOS22/
+
+# This template creates a Debian-based LXC container with:
+# - QEMU for running the LineageOS image
+# - Direct X11 socket passthrough for GUI
+# - Direct PulseAudio/PipeWire socket passthrough for audio
+# - VPN passthrough capabilities
+
+# Prerequisites (host system):
+# 1. Install LXD: sudo apt install lxd
+# 2. Initialize LXD: lxd init (accept defaults or customize as needed)
+# 3. Make sure X11 forwarding is enabled: xhost +local:
+
+image:
+  distribution: debian
+  release: bookworm
+  architecture: amd64
+
+source:
+  downloader: debootstrap
+  url: http://deb.debian.org/debian
+  keys:
+    - 0x0E98404D386FA1D9
+
+devices:
+  X11:
+    type: disk
+    source: /tmp/.X11-unix/X0
+    path: /tmp/.X11-unix/X0
+  pulseaudio:
+    type: disk
+    source: /run/user/1000/pulse
+    path: /run/user/1000/pulse
+
+packages:
+  manager: apt
+  update: true
+  cleanup: true
+  sets:
+    - packages:
+        - qemu-system-arm
+        - qemu-utils
+        - qemu-efi-aarch64
+        - libvirt-daemon
+        - libvirt-clients
+        - bridge-utils
+        - virt-manager
+        - curl
+        - wget
+        - git
+        - python3
+        - python3-pip
+        - openssh-client
+        - sudo
+        - xdg-utils
+        - x11-apps
+        - pulseaudio
+        - alsa-utils
+        - dbus-x11
+      action: install
+
+files:
+  - path: /usr/local/bin/setup-android.sh
+    generator: dump
+    mode: 0755
+    content: |
+      #!/bin/bash
+      set -e
+      
+      # Create directory for Android image
+      mkdir -p /home/android
+      cd /home/android
+      
+      # Download LineageOS image (replace with actual URL)
+      echo "Downloading LineageOS 22 for Raspberry Pi 5..."
+      wget -c https://konstakang.com/devices/rpi5/LineageOS22/lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img.xz
+      
+      # Extract image
+      echo "Extracting image..."
+      xz -d lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img.xz
+      
+      # Create script to run Android in QEMU
+      cat > /home/run-android.sh << 'EOF'
+      #!/bin/bash
+      
+      # Ensure X11 and audio environment variables are set
+      export DISPLAY=${DISPLAY:-:0}
+      export PULSE_SERVER=${PULSE_SERVER:-unix:/run/user/1000/pulse/native}
+      
+      # Run QEMU with the LineageOS image
+      qemu-system-aarch64 \
+        -machine raspi5 \
+        -cpu cortex-a76 \
+        -smp 4 \
+        -m 4G \
+        -drive file=/home/android/lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img,format=raw,if=sd \
+        -device usb-net,netdev=net0 \
+        -netdev user,id=net0,hostfwd=tcp::5555-:5555 \
+        -device usb-kbd \
+        -device usb-mouse \
+        -device usb-audio \
+        -device virtio-gpu-pci \
+        -display gtk,gl=on
+      EOF
+      
+      chmod +x /home/run-android.sh
+      
+      echo "Setup complete! Run /home/run-android.sh to start Android"
+
+actions:
+  - trigger: post-packages
+    action: |
+      # Enable nested virtualization
+      modprobe kvm
+      modprobe kvm_intel || modprobe kvm_amd
+      
+      # Setup Android
+      /usr/local/bin/setup-android.sh
+      
+      # Create systemd service for VPN passthrough
+      cat > $ROOT/etc/systemd/system/vpn-passthrough.service << EOF
+      [Unit]
+      Description=VPN Passthrough for LXC
+      After=network.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c "iptables -t nat -A POSTROUTING -o tun0 -j MASQUERADE"
+      RemainAfterExit=yes
+      
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      
+      # Enable the service
+      chroot $ROOT systemctl enable vpn-passthrough.service
+
+mappings:
+  architecture_map: debian
+
+# Post-installation instructions:
+# 1. Build the container: lxc launch debian:bookworm android-container -f /home/adminotaur/Documents/git/lxc-builder/dev/android.yml
+# 2. Start the container: lxc start android-container
+# 3. Enter the container: lxc exec android-container -- bash
+# 4. Run the Android emulator: ./run-android.sh
+#
+# How X11 and Audio Passthrough Works:
+# - The X11 socket is mounted from the host into the container
+# - The PulseAudio/PipeWire socket is mounted from the host into the container
+# - The QEMU process in the container connects directly to these sockets
+# - This allows GUI and audio to work without noVNC or other web-based solutions
+#
+# Troubleshooting:
+# - If GUI doesn't appear: Make sure your host allows X11 forwarding with: xhost +local:
+# - If audio doesn't work: Check that PulseAudio/PipeWire is running on the host
+# - For VPN issues: Check that the VPN passthrough service is running in the container
+#
+# Notes:
+# - GUI will appear directly on your host display via X11 socket passthrough
+# - Audio will work through your host audio system via PulseAudio/PipeWire socket passthrough
+# - VPN access is configured via iptables masquerading
+# - For better performance, consider passing through GPU devices if available
