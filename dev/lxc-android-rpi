@@ -1,0 +1,277 @@
+#!/bin/bash
+
+# lxc-android-rpi - LXC template for LineageOS on Raspberry Pi
+#
+# Author: Cascade AI Assistant
+# Description: Creates an LXC container for running LineageOS 22 on Raspberry Pi 5
+#              with direct X11 and PulseAudio passthrough
+#
+# This template should be placed in /usr/share/lxc/templates/lxc-android-rpi
+
+# Detect which package management system is used
+if command -v apt-get >/dev/null 2>&1; then
+    PACKAGES="qemu-system-arm qemu-utils qemu-efi-aarch64 libvirt-daemon libvirt-clients bridge-utils virt-manager curl wget git python3 python3-pip openssh-client sudo xdg-utils x11-apps pulseaudio alsa-utils dbus-x11"
+    INSTALL_PACKAGES="apt-get update && apt-get install -y $PACKAGES"
+elif command -v dnf >/dev/null 2>&1; then
+    PACKAGES="qemu-system-arm qemu-img edk2-aarch64 libvirt libvirt-client bridge-utils virt-manager curl wget git python3 python3-pip openssh-clients sudo xdg-utils xorg-x11-apps pulseaudio alsa-utils dbus-x11"
+    INSTALL_PACKAGES="dnf -y install $PACKAGES"
+else
+    echo "Unsupported package manager. This template requires apt-get or dnf."
+    exit 1
+fi
+
+# Template configuration
+LINEAGEOS_URL="https://konstakang.com/devices/rpi5/LineageOS22/lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img.xz"
+LINEAGEOS_IMG="lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img"
+
+# Print usage information
+usage() {
+    cat <<EOF
+Usage: $0 -n|--name=<container_name> [-p|--path=<path>] 
+                                     [--rootfs=<rootfs_path>]
+                                     [-h|--help]
+
+Options:
+    -n, --name=NAME           Container name
+    -p, --path=PATH           Path to where the container rootfs will be created
+    --rootfs=PATH             Path to the container rootfs
+    -h, --help                Print this help message
+
+Example:
+    sudo lxc-create -t android-rpi -n android-container
+EOF
+    return 0
+}
+
+# Parse command line options
+options=$(getopt -o hp:n: -l help,path:,name:,rootfs: -- "$@")
+if [ $? -ne 0 ]; then
+    usage
+    exit 1
+fi
+eval set -- "$options"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -p|--path)
+            path=$2
+            shift 2
+            ;;
+        --rootfs)
+            rootfs=$2
+            shift 2
+            ;;
+        -n|--name)
+            name=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check if name is provided
+if [ -z "$name" ]; then
+    echo "Container name is required"
+    usage
+    exit 1
+fi
+
+# Set default path if not provided
+if [ -z "$path" ]; then
+    path="/var/lib/lxc/$name"
+fi
+
+# Set default rootfs if not provided
+if [ -z "$rootfs" ]; then
+    rootfs="$path/rootfs"
+fi
+
+# Create the container rootfs
+mkdir -p "$rootfs"
+
+# Function to create Debian container
+create_debian_container() {
+    # Use debootstrap to create a basic Debian system
+    debootstrap --arch=amd64 bookworm "$rootfs" http://deb.debian.org/debian/
+    
+    # Configure apt sources
+    cat > "$rootfs/etc/apt/sources.list" << EOF
+deb http://deb.debian.org/debian bookworm main contrib non-free
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free
+EOF
+    
+    # Install required packages
+    chroot "$rootfs" bash -c "$INSTALL_PACKAGES"
+    
+    return 0
+}
+
+# Function to configure the container
+configure_container() {
+    # Create LXC configuration file
+    cat > "$path/config" << EOF
+# Standard LXC configuration
+lxc.include = /usr/share/lxc/config/debian.common.conf
+
+# Container basics
+lxc.arch = amd64
+lxc.uts.name = $name
+
+# Network configuration
+lxc.net.0.type = veth
+lxc.net.0.flags = up
+lxc.net.0.link = lxcbr0
+
+# Mount points for X11 and audio
+lxc.mount.entry = /tmp/.X11-unix tmp/.X11-unix none bind,optional,create=dir 0 0
+lxc.mount.entry = /run/user/1000/pulse run/user/1000/pulse none bind,optional,create=dir 0 0
+
+# Root filesystem
+lxc.rootfs.path = dir:$rootfs
+EOF
+    
+    return 0
+}
+
+# Function to setup Android environment
+setup_android() {
+    # Create directory for Android image
+    mkdir -p "$rootfs/home/android"
+    
+    # Create script to download and extract LineageOS image
+    cat > "$rootfs/usr/local/bin/setup-android.sh" << EOF
+#!/bin/bash
+set -e
+
+# Create directory for Android image
+cd /home/android
+
+# Download LineageOS image
+echo "Downloading LineageOS 22 for Raspberry Pi 5..."
+wget -c $LINEAGEOS_URL
+
+# Extract image
+echo "Extracting image..."
+xz -d \$(basename $LINEAGEOS_URL)
+
+echo "Setup complete! Run /home/run-android.sh to start Android"
+EOF
+    
+    # Make script executable
+    chmod +x "$rootfs/usr/local/bin/setup-android.sh"
+    
+    # Create script to run Android in QEMU
+    cat > "$rootfs/home/run-android.sh" << 'EOF'
+#!/bin/bash
+
+# Ensure X11 and audio environment variables are set
+export DISPLAY=${DISPLAY:-:0}
+export PULSE_SERVER=${PULSE_SERVER:-unix:/run/user/1000/pulse/native}
+
+# Run QEMU with the LineageOS image
+qemu-system-aarch64 \
+  -machine raspi5 \
+  -cpu cortex-a76 \
+  -smp 4 \
+  -m 4G \
+  -drive file=/home/android/lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img,format=raw,if=sd \
+  -device usb-net,netdev=net0 \
+  -netdev user,id=net0,hostfwd=tcp::5555-:5555 \
+  -device usb-kbd \
+  -device usb-mouse \
+  -device usb-audio \
+  -device virtio-gpu-pci \
+  -display gtk,gl=on
+EOF
+    
+    # Make script executable
+    chmod +x "$rootfs/home/run-android.sh"
+    
+    # Create VPN passthrough script
+    cat > "$rootfs/etc/rc.local" << 'EOF'
+#!/bin/sh
+
+# Enable VPN passthrough
+iptables -t nat -A POSTROUTING -o tun0 -j MASQUERADE
+
+exit 0
+EOF
+    
+    # Make script executable
+    chmod +x "$rootfs/etc/rc.local"
+    
+    # Create first-boot script to download Android image
+    cat > "$rootfs/etc/rc.local.d/android-setup.sh" << 'EOF'
+#!/bin/bash
+
+# Check if Android image already exists
+if [ ! -f /home/android/lineage-22.2-20240805-UNOFFICIAL-KonstaKANG-rpi5.img ]; then
+    /usr/local/bin/setup-android.sh
+fi
+EOF
+    
+    # Make script executable
+    mkdir -p "$rootfs/etc/rc.local.d"
+    chmod +x "$rootfs/etc/rc.local.d/android-setup.sh"
+    
+    return 0
+}
+
+# Main function
+main() {
+    # Create the container
+    create_debian_container
+    
+    # Configure the container
+    configure_container
+    
+    # Setup Android environment
+    setup_android
+    
+    # Print success message
+    cat << EOF
+Container created successfully!
+
+To start the container:
+  sudo lxc-start -n $name
+
+To enter the container:
+  sudo lxc-attach -n $name
+
+To run Android:
+  ./home/run-android.sh
+
+Note: On first boot, the container will automatically download and extract
+      the LineageOS image. This may take some time depending on your internet connection.
+
+How X11 and Audio Passthrough Works:
+- The X11 socket is mounted from the host into the container
+- The PulseAudio/PipeWire socket is mounted from the host into the container
+- The QEMU process in the container connects directly to these sockets
+- This allows GUI and audio to work without noVNC or other web-based solutions
+
+Troubleshooting:
+- If GUI doesn't appear: Make sure your host allows X11 forwarding with: xhost +local:
+- If audio doesn't work: Check that PulseAudio/PipeWire is running on the host
+- For VPN issues: Check that the VPN passthrough script in /etc/rc.local is working
+EOF
+    
+    return 0
+}
+
+# Run the main function
+main
+exit 0

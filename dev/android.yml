@@ -1,4 +1,4 @@
-# THIS IS EXPERIEMNTAL & STILL IN DEV
+# THIS IS EXPERIMENTAL & STILL IN DEV
 
 # LineageOS 22 for Raspberry Pi 5 in LXC with Direct X11 and Audio Passthrough
 # Source: https://konstakang.com/devices/rpi5/LineageOS22/
@@ -10,8 +10,8 @@
 # - VPN passthrough capabilities
 
 # Prerequisites (host system):
-# 1. Install LXC: sudo apt install lxc
-# 2. Initialize LXC: lxc init (accept defaults or customize as needed)
+# 1. Install LXD: sudo apt install lxd
+# 2. Initialize LXD: sudo lxd init (accept defaults or customize as needed)
 # 3. Make sure X11 forwarding is enabled: xhost +local:
 
 image:
